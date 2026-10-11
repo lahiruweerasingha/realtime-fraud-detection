@@ -1,0 +1,27 @@
+{
+  "active_destinations": 695725,
+  "flink": {
+    "duration_seconds": 1543.9,
+    "job_id": "bf666a4ec3a17e8a807e9fd23f06b00b",
+    "parallelism": 3,
+    "records_per_second": 806,
+    "valid_records_processed": 1243990
+  },
+  "malformed_by_reason": {
+    "bad_amount": 8,
+    "bad_step": 8,
+    "missing_name_dest": 8,
+    "not_json": 8,
+    "unknown_txn_type": 8
+  },
+  "malformed_injected": 40,
+  "replay_rows": 959016,
+  "score_from_step": 378,
+  "score_to_step": 408,
+  "seconds": 12.0,
+  "snapshot_accounts": 284974,
+  "state_messages": 284974,
+  "transactions": 959016,
+  "undelivered": 0,
+  "warmup_from_step": 354
+}

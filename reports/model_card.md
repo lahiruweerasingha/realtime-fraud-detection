@@ -87,8 +87,19 @@ base rate inflates precision.
    arrive days or weeks later; monitoring of alert precision would lag
    accordingly.
 
-## Monitoring
+## Serving and monitoring
 
-The registry entry carries the alert threshold and a reference distribution of
-validation scores, so a scoring service can track the alert rate and score drift
-(population stability index) against what the model was evaluated on.
+The registry entry carries the feature order, the alert threshold and a
+reference distribution of validation scores. The PyFlink scoring job
+(`streaming/job.py`) loads all of them from `fraud-detector@champion` at
+start-up, so it alerts at exactly the operating point evaluated above. Every
+hour of event time it writes to InfluxDB, shown in Grafana:
+
+- transactions scored, alerts raised, and fraud caught by alerts;
+- alert precision and recall, using labels that in production would arrive later;
+- score drift: the population stability index of the hour's scores against the
+  validation distribution;
+- dead letters (each message in the dead-letter topic records its reason).
+
+The streaming features and scores were checked against the batch pipeline,
+transaction by transaction ([ADR 5](../docs/decisions/0005-streaming-features-must-equal-batch-features.md)).

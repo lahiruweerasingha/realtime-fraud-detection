@@ -1,0 +1,47 @@
+{
+  "alert_threshold": 0.9477935433387756,
+  "alerts": 997,
+  "dead_letters": {
+    "injected": {
+      "bad_amount": 8,
+      "bad_step": 8,
+      "missing_name_dest": 8,
+      "not_json": 8,
+      "unknown_txn_type": 8
+    },
+    "received": {
+      "bad_amount": 8,
+      "bad_step": 8,
+      "missing_name_dest": 8,
+      "not_json": 8,
+      "unknown_txn_type": 8
+    }
+  },
+  "duplicate_txn_ids": 0,
+  "expected_transactions": 253490,
+  "failures": [],
+  "fraud_alerted": 205,
+  "fraud_in_scored_hours": 386,
+  "max_abs_feature_difference": {
+    "amount_vs_dest_mean": 1.4210854715202004e-14,
+    "dest_amount_24h": 9.313225746154785e-10,
+    "dest_prior_amount": 2.9802322387695312e-08,
+    "dest_prior_txn_count": 0.0,
+    "dest_txn_count_24h": 0.0,
+    "hour_cos": 0.0,
+    "hour_of_day": 0.0,
+    "hour_sin": 0.0,
+    "is_transfer": 0.0,
+    "log_amount": 1.7763568394002505e-15
+  },
+  "max_abs_score_difference": 0.0,
+  "missing_from_stream": 0,
+  "model_version": "3",
+  "passed": true,
+  "scored_hours": [
+    378,
+    408
+  ],
+  "streamed_records": 253490,
+  "unexpected_in_stream": 0
+}
