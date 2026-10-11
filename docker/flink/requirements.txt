@@ -1,0 +1,8 @@
+# Scoring and I/O libraries for the streaming image, on top of apache-flink.
+# xgboost and mlflow match the training image so the registered model loads
+# with the same versions it was saved with.
+xgboost==2.1.4
+mlflow-skinny==3.17.0
+scikit-learn==1.7.2
+confluent-kafka==2.5.0
+influxdb-client==1.44.0

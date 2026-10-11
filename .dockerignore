@@ -1,3 +1,5 @@
-# The image only needs requirements.txt; code and data are mounted at runtime.
+# The images only need their requirements files; code and data are mounted
+# at runtime.
 *
 !requirements.txt
+!docker/flink/requirements.txt
