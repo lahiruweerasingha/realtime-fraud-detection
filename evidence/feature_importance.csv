@@ -1,0 +1,11 @@
+feature,gain
+hour_of_day,3102050.25
+is_transfer,2735125.5
+dest_prior_txn_count,2616096.25
+log_amount,2403878.25
+dest_prior_amount,1850461.625
+amount_vs_dest_mean,1496875.75
+dest_amount_24h,336620.5
+hour_sin,332664.28125
+hour_cos,230261.84375
+dest_txn_count_24h,194679.8125

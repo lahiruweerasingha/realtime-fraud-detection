@@ -1,0 +1,55 @@
+{
+  "by_type": {
+    "CASH_IN": {
+      "fraud_rows": 0,
+      "rows": 1399284
+    },
+    "CASH_OUT": {
+      "fraud_rows": 4116,
+      "rows": 2237500
+    },
+    "DEBIT": {
+      "fraud_rows": 0,
+      "rows": 41432
+    },
+    "PAYMENT": {
+      "fraud_rows": 0,
+      "rows": 2151495
+    },
+    "TRANSFER": {
+      "fraud_rows": 4097,
+      "rows": 532909
+    }
+  },
+  "dest_accounts_seen_more_than_once": 459658,
+  "distinct_dest_accounts": 2722362,
+  "distinct_orig_accounts": 6353307,
+  "distinct_steps": 743,
+  "duplicate_rows": 0,
+  "failed_checks": [],
+  "flagged_and_fraud": 16,
+  "flagged_rows": 16,
+  "fraud_rate": 0.001290820448180152,
+  "fraud_rows": 8213,
+  "max_step": 743,
+  "min_step": 1,
+  "negative_amounts": 0,
+  "nulls": {
+    "amount": 0,
+    "is_flagged_fraud": 0,
+    "is_fraud": 0,
+    "name_dest": 0,
+    "name_orig": 0,
+    "new_balance_dest": 0,
+    "new_balance_orig": 0,
+    "old_balance_dest": 0,
+    "old_balance_orig": 0,
+    "step": 0,
+    "txn_type": 0
+  },
+  "orig_accounts_seen_more_than_once": 9298,
+  "rows": 6362620,
+  "source_bytes": 493534783,
+  "source_file": "paysim dataset.csv",
+  "source_sha256": "16910f90577b0d981bf8ff289714510bb89bc71bff7d3f220f024e287e4eea6b"
+}
