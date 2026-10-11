@@ -21,12 +21,13 @@ SUBMIT := $(COMPOSE) exec -T spark-master /opt/spark/bin/spark-submit \
 
 RUNNER := $(COMPOSE) run --rm --no-deps runner
 
-.PHONY: help build up down data validate features train run eda test lint clean
+.PHONY: help build up down data validate features train report run eda test lint clean
 
 help:
 	@echo "make up        build the image and start Spark + MLflow"
 	@echo "make data      check the PaySim CSV is in data/raw/"
-	@echo "make run       validate -> features -> train (on the cluster)"
+	@echo "make run       validate -> features -> train -> report (on the cluster)"
+	@echo "make report    rebuild evidence/RESULTS.md from evidence/*.json"
 	@echo "make eda       execute notebooks/01_eda.ipynb with real outputs"
 	@echo "make test      run the test suite in the Spark image"
 	@echo "make lint      ruff lint + format check (needs ruff installed)"
@@ -55,7 +56,10 @@ features:
 train:
 	$(SUBMIT) /app/jobs/train.py
 
-run: validate features train
+report:
+	$(RUNNER) python3 scripts/report.py
+
+run: validate features train report
 
 eda: data
 	$(RUNNER) jupyter nbconvert --to notebook --execute --inplace \
