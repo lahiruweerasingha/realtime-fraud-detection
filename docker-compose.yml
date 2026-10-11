@@ -1,0 +1,109 @@
+# Spark standalone cluster (1 master, 2 workers, history server) + MLflow.
+#
+#   make up      start everything
+#   make run     validate -> features -> train on the cluster
+#   make down    stop (data and MLflow runs are kept in named volumes)
+#
+# UIs: Spark master :8080 · Spark history :18080 · MLflow :5000
+
+name: fraud-detection
+
+x-spark: &spark
+  image: fraud-spark:0.1.0
+  build:
+    context: .
+    dockerfile: docker/spark/Dockerfile
+  volumes:
+    - ./:/app                       # code, SQL, notebooks, evidence
+    - ./data:/data                  # raw CSV in, Parquet out (gitignored)
+    - spark-events:/opt/spark-events
+  environment: &spark-env
+    SPARK_NO_DAEMONIZE: "true"
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    GIT_PYTHON_REFRESH: quiet       # MLflow probes for git, which the image doesn't need
+    TRAIN_END_STEP: ${TRAIN_END_STEP:-}
+    VALID_END_STEP: ${VALID_END_STEP:-}
+  networks: [fraud-net]
+
+x-worker: &worker
+  <<: *spark
+  command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+  environment:
+    <<: *spark-env
+    SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-2}
+    SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-3g}
+  depends_on:
+    spark-master:
+      condition: service_healthy
+
+services:
+  spark-master:
+    <<: *spark
+    command: >
+      /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+      --host spark-master --port 7077 --webui-port 8080
+    ports:
+      - "8080:8080"   # master UI
+      - "7077:7077"   # cluster RPC
+      - "4040:4040"   # driver UI while a job runs (jobs are submitted from here)
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  spark-worker-1:
+    <<: *worker
+    ports: ["8181:8081"]
+
+  spark-worker-2:
+    <<: *worker
+    ports: ["8182:8081"]
+
+  # The live driver UI disappears when a job ends; the history server replays
+  # the event logs so stage timings and DAGs stay inspectable afterwards.
+  spark-history:
+    <<: *spark
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.history.HistoryServer
+    environment:
+      <<: *spark-env
+      SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=file:/opt/spark-events
+    ports: ["18080:18080"]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.17.0
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination /mlflow/artifacts --serve-artifacts
+      --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
+    volumes:
+      - mlflow-data:/mlflow
+    ports: ["5000:5000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks: [fraud-net]
+
+  # One-off container for tests and the EDA notebook (local Spark, no cluster).
+  runner:
+    <<: *spark
+    profiles: [tools]
+    environment:
+      <<: *spark-env
+      IPYTHONDIR: /tmp/ipython        # the spark user has no writable home
+    command: ["python3", "--version"]
+
+volumes:
+  spark-events:
+  mlflow-data:
+
+networks:
+  fraud-net:
