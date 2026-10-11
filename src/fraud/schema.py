@@ -2,13 +2,18 @@
 
 Every job reads the raw CSV through `read_transactions`, so column names,
 types and the excluded columns are defined once.
+
+PySpark is imported inside the functions that need it, so the constants here
+can also be used by the streaming components, which run without Spark.
 """
 
 from __future__ import annotations
 
-from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql import functions as F
-from pyspark.sql import types as T
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pyspark.sql import DataFrame, SparkSession
+    from pyspark.sql import types as T
 
 # Raw header as published, in file order -> snake_case name used everywhere else.
 RENAMES: dict[str, str] = {
@@ -43,24 +48,35 @@ LEAKY_COLUMNS: tuple[str, ...] = (
 
 TRANSACTION_TYPES: tuple[str, ...] = ("CASH_IN", "CASH_OUT", "DEBIT", "PAYMENT", "TRANSFER")
 
-_RAW_TYPES: dict[str, T.DataType] = {
-    "step": T.IntegerType(),
-    "type": T.StringType(),
-    "amount": T.DoubleType(),
-    "nameOrig": T.StringType(),
-    "oldbalanceOrg": T.DoubleType(),
-    "newbalanceOrig": T.DoubleType(),
-    "nameDest": T.StringType(),
-    "oldbalanceDest": T.DoubleType(),
-    "newbalanceDest": T.DoubleType(),
-    "isFraud": T.IntegerType(),
-    "isFlaggedFraud": T.IntegerType(),
+# Only these transaction types are scored. The data profile shows every fraud
+# in PaySim is a TRANSFER or a CASH_OUT (see evidence/data_profile.json);
+# the other types pass through without a score.
+MODEL_SCOPE_TYPES: tuple[str, ...] = ("TRANSFER", "CASH_OUT")
+
+# Spark SQL type of each raw column.
+_RAW_TYPES: dict[str, str] = {
+    "step": "int",
+    "type": "string",
+    "amount": "double",
+    "nameOrig": "string",
+    "oldbalanceOrg": "double",
+    "newbalanceOrig": "double",
+    "nameDest": "string",
+    "oldbalanceDest": "double",
+    "newbalanceDest": "double",
+    "isFraud": "int",
+    "isFlaggedFraud": "int",
 }
 
 
 def raw_schema() -> T.StructType:
     """Explicit schema: no inference pass over 6M rows, and no silent type drift."""
-    return T.StructType([T.StructField(name, _RAW_TYPES[name], True) for name in RENAMES])
+    from pyspark.sql import types as T
+
+    spark_types = {"int": T.IntegerType(), "string": T.StringType(), "double": T.DoubleType()}
+    return T.StructType(
+        [T.StructField(name, spark_types[_RAW_TYPES[name]], True) for name in RENAMES]
+    )
 
 
 def read_transactions(spark: SparkSession, path: str) -> DataFrame:
@@ -69,6 +85,8 @@ def read_transactions(spark: SparkSession, path: str) -> DataFrame:
     Rows that do not match the schema are kept as nulls (PERMISSIVE mode) so
     that validation can count them, rather than being dropped silently.
     """
+    from pyspark.sql import functions as F
+
     raw = (
         spark.read.option("header", True)
         .option("mode", "PERMISSIVE")

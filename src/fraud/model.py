@@ -12,10 +12,7 @@ from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from xgboost.spark import SparkXGBClassifier
 
-# Only these transaction types are scored. The data profile shows every fraud
-# in PaySim is a TRANSFER or a CASH_OUT (see evidence/data_profile.json);
-# the other types pass through without a score.
-MODEL_SCOPE_TYPES: tuple[str, ...] = ("TRANSFER", "CASH_OUT")
+from fraud.schema import MODEL_SCOPE_TYPES  # noqa: F401  (defined with the data contract)
 
 XGB_PARAMS: dict = {
     "max_depth": 6,
