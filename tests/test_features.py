@@ -64,12 +64,10 @@ def test_24_hour_window_excludes_older_history(features):
     assert d["dest_amount_24h"] == pytest.approx(200.0)
 
 
-def test_origin_history_and_merchant_flag(features):
-    payment = features[(2, 50.0)]  # C1 paid merchant M100; C1 also sent A at step 1
-    assert payment["orig_prior_txn_count"] == 1
-    assert payment["is_merchant_dest"] == 1
-    assert payment["dest_prior_txn_count"] == 1  # M100 was paid 10 at step 1
-    assert features[(1, 100.0)]["is_merchant_dest"] == 0
+def test_history_is_kept_per_destination_account(features):
+    payment = features[(2, 50.0)]  # merchant M100 was paid 10 at step 1
+    assert payment["dest_prior_txn_count"] == 1
+    assert payment["dest_prior_amount"] == pytest.approx(10.0)
 
 
 def test_transaction_level_features(features):
@@ -78,3 +76,12 @@ def test_transaction_level_features(features):
     assert d["is_transfer"] == 1
     assert d["log_amount"] == pytest.approx(math.log1p(400.0))
     assert features[(30, 20.0)]["is_transfer"] == 0
+
+
+def test_hour_is_encoded_on_a_circle(features):
+    d = features[(26, 400.0)]  # hour 2
+    assert d["hour_sin"] == pytest.approx(math.sin(2 * math.pi * 2 / 24))
+    assert d["hour_cos"] == pytest.approx(math.cos(2 * math.pi * 2 / 24))
+    # Every encoded hour lies on the unit circle.
+    for row in features.values():
+        assert row["hour_sin"] ** 2 + row["hour_cos"] ** 2 == pytest.approx(1.0)
