@@ -156,6 +156,47 @@ def cost_optimal(
     }
 
 
+def threshold_for_budget(scores: np.ndarray, budget: float) -> float:
+    """Score above which (inclusive) the top `budget` share of rows falls.
+
+    Computed on validation scores at training time and stored with the model,
+    so a live service raises alerts at the same rate the model was judged on.
+    """
+    if not 0 < budget <= 1:
+        raise ValueError("budget must be in (0, 1]")
+    (scores,) = _as_arrays(scores)
+    k = math.ceil(budget * len(scores))
+    return float(np.sort(scores)[::-1][k - 1])
+
+
+def score_reference(scores: np.ndarray, n_bins: int = 10) -> dict[str, list[float]]:
+    """Quantile bins of a reference score distribution, for drift monitoring.
+
+    The outer edges are opened to -inf/+inf so every future score falls in a bin.
+    """
+    (scores,) = _as_arrays(scores)
+    edges = np.unique(np.quantile(scores, np.linspace(0, 1, n_bins + 1)))
+    edges[0], edges[-1] = -np.inf, np.inf
+    counts, _ = np.histogram(scores, bins=edges)
+    return {"edges": edges.tolist(), "proportions": (counts / counts.sum()).tolist()}
+
+
+def population_stability_index(
+    reference: dict[str, list[float]], scores: np.ndarray, floor: float = 1e-4
+) -> float:
+    """PSI between a reference distribution and new scores.
+
+    PSI = sum((new - ref) * ln(new / ref)) over the reference bins. Common rule
+    of thumb: < 0.1 stable, 0.1-0.25 moderate shift, > 0.25 large shift.
+    Empty bins are floored so the logarithm stays finite.
+    """
+    (scores,) = _as_arrays(scores)
+    counts, _ = np.histogram(scores, bins=np.asarray(reference["edges"]))
+    new = np.maximum(counts / counts.sum(), floor)
+    ref = np.maximum(np.asarray(reference["proportions"]), floor)
+    return float(np.sum((new - ref) * np.log(new / ref)))
+
+
 def bootstrap_ci(
     metric: Callable[..., float],
     arrays: tuple[np.ndarray, ...],
