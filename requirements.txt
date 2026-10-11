@@ -1,0 +1,15 @@
+# Runtime dependencies installed into the Spark image (Python 3.10).
+#
+# NumPy stays on 1.26: PySpark 3.5 predates NumPy 2 and parts of its
+# pandas/Arrow integration break against it. pandas and PyArrow are pinned
+# to versions known to work with that combination.
+numpy==1.26.4
+pandas==2.2.3
+pyarrow==15.0.2
+scikit-learn==1.7.2
+xgboost==2.1.4
+mlflow-skinny==3.17.0
+duckdb==1.5.6
+matplotlib==3.10.9
+nbconvert==7.17.1
+ipykernel==7.3.0

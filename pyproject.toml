@@ -1,0 +1,22 @@
+[project]
+name = "realtime-fraud-detection"
+version = "0.1.0"
+description = "Fraud detection on mobile-money transactions with Spark, XGBoost and MLflow."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Lahiru Weerasingha" }]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"   # the Spark image runs Python 3.10
+src = ["src", "jobs", "tests"]
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "PD", "NPY"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+filterwarnings = ["ignore::DeprecationWarning"]

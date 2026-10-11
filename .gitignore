@@ -1,0 +1,33 @@
+# Data: never committed. Fetch with `make data` (see scripts/fetch_data.sh).
+# Ignores everything inside any data/ subfolder (raw, processed, smoke, ...)
+# while keeping the empty folders themselves.
+data/*/*
+!data/*/.gitkeep
+
+# Runtime state produced by the containers
+spark-events/
+mlflow-data/
+output/
+
+# Secrets
+.env
+!.env.example
+kaggle.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,5 @@
+# Everything that runs inside a Linux container must keep LF endings;
+# a CRLF shebang fails with "bad interpreter: ^M".
+* text=auto eol=lf
+*.png binary
+*.ipynb text eol=lf

@@ -1,0 +1,7 @@
+# Test and lint tooling. Inside the container PySpark comes from the Spark
+# install itself; CI installs the matching PyPI package instead.
+-r requirements.txt
+pyspark==3.5.9
+pytest==9.1.1
+ruff==0.17.0
+pre-commit==4.6.2
