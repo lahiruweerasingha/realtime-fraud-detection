@@ -1,12 +1,18 @@
-"""Feature engineering: runs sql/features.sql over the prepared transactions."""
+"""Feature engineering: runs sql/features.sql over the prepared transactions.
+
+The feature list is also used by the streaming components, which run without
+Spark, so PySpark is only imported for type checking here.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
-
-from pyspark.sql import DataFrame, SparkSession
+from typing import TYPE_CHECKING
 
 from fraud.schema import LEAKY_COLUMNS
+
+if TYPE_CHECKING:
+    from pyspark.sql import DataFrame, SparkSession
 
 SQL_FILE = Path(__file__).resolve().parents[2] / "sql" / "features.sql"
 

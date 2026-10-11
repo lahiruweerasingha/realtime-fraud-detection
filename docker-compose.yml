@@ -1,12 +1,48 @@
-# Spark standalone cluster (1 master, 2 workers, history server) + MLflow.
+# Batch: Spark standalone cluster (1 master, 2 workers, history server) + MLflow.
+# Streaming (profile "streaming"): Kafka -> Flink -> InfluxDB -> Grafana, scoring
+# with the MLflow champion.
 #
-#   make up      start everything
-#   make run     validate -> features -> train on the cluster
-#   make down    stop (data and MLflow runs are kept in named volumes)
+#   make up / make run          batch pipeline
+#   make stream-up / stream-run streaming pipeline (stops the Spark services first,
+#                               so both stacks never share an 8 GB Docker VM)
+#   make down                   stop everything (named volumes are kept)
 #
-# UIs: Spark master :8080 · Spark history :18080 · MLflow :5000
+# UIs: Spark :8080 · history :18080 · MLflow :5000 · Flink :8081 · Grafana :3000
 
 name: fraud-detection
+
+x-flink: &flink
+  image: fraud-flink:0.1.0
+  build:
+    context: .
+    dockerfile: docker/flink/Dockerfile
+  profiles: [streaming]
+  volumes:
+    - ./:/app
+    - ./data:/data
+    - flink-checkpoints:/opt/flink/checkpoints
+  environment:
+    FLINK_PROPERTIES: |
+      jobmanager.rpc.address: flink-jobmanager
+      taskmanager.numberOfTaskSlots: 3
+      taskmanager.memory.process.size: 4096m
+      parallelism.default: 3
+      state.backend.type: hashmap
+      execution.checkpointing.storage: filesystem
+      execution.checkpointing.dir: file:///opt/flink/checkpoints
+      python.executable: python3
+      python.client.executable: python3
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    GIT_PYTHON_REFRESH: quiet
+    KAFKA_BOOTSTRAP: kafka:9092
+    INFLUX_URL: http://influxdb:8086
+    INFLUX_ORG: ${INFLUX_ORG:-fraud}
+    INFLUX_BUCKET: ${INFLUX_BUCKET:-fraud-monitoring}
+    INFLUX_TOKEN: ${INFLUX_TOKEN:?run make env}
+    SCORE_FROM_STEP: ${SCORE_FROM_STEP:-378}
+    SCORE_TO_STEP: ${SCORE_TO_STEP:-408}
+    PYTHONPATH: /app/src
+  networks: [fraud-net]
 
 x-spark: &spark
   image: fraud-spark:0.1.0
@@ -101,9 +137,123 @@ services:
       IPYTHONDIR: /tmp/ipython        # the spark user has no writable home
     command: ["python3", "--version"]
 
+  # ===========================================================================
+  # Streaming (profile "streaming")
+  # ===========================================================================
+
+  kafka:
+    image: apache/kafka:3.8.0
+    profiles: [streaming]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller        # KRaft: no ZooKeeper
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"      # topics are declared by kafka-init
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    ports: ["29092:29092"]
+    volumes: [kafka-data:/var/lib/kafka/data]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
+    networks: [fraud-net]
+
+  kafka-init:
+    image: apache/kafka:3.8.0
+    profiles: [streaming]
+    depends_on:
+      kafka: {condition: service_healthy}
+    entrypoint: ["/bin/bash", "-c"]
+    # retention.ms=-1: messages carry PaySim event times (placed in 2024), and
+    # Kafka's time-based retention judges age by record timestamp. With the
+    # default 7-day retention the broker deletes a replay within minutes.
+    command:
+      - |
+        set -e
+        T=/opt/kafka/bin/kafka-topics.sh
+        for spec in transactions:3 scores:3 transactions-dlq:1; do
+          $$T --bootstrap-server kafka:9092 --create --if-not-exists \
+            --topic $${spec%%:*} --partitions $${spec##*:} --replication-factor 1 \
+            --config retention.ms=-1
+        done
+        $$T --bootstrap-server kafka:9092 --describe | grep -E "Topic:.*Configs"
+    networks: [fraud-net]
+
+  flink-jobmanager:
+    <<: *flink
+    command: jobmanager
+    ports: ["8081:8081"]
+    depends_on:
+      kafka: {condition: service_healthy}
+
+  flink-taskmanager:
+    <<: *flink
+    command: taskmanager
+    depends_on: [flink-jobmanager]
+
+  # Runs the replay producer and the verification with the streaming image.
+  stream-tools:
+    <<: *flink
+    command: ["python3", "--version"]
+
+  influxdb:
+    image: influxdb:2.7.12-alpine
+    profiles: [streaming]
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_PASSWORD:?run make env}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG:-fraud}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET:-fraud-monitoring}
+      # Infinite retention: event times are placed in 2024, and InfluxDB rejects
+      # writes older than a bucket's retention period.
+      DOCKER_INFLUXDB_INIT_RETENTION: "0"
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:?run make env}
+    ports: ["8086:8086"]
+    volumes: [influxdb-data:/var/lib/influxdb2]
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [fraud-net]
+
+  grafana:
+    image: grafana/grafana-oss:12.4.3
+    profiles: [streaming]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run make env}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"             # read-only viewing on localhost
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fraud-monitoring.json
+      INFLUX_ORG: ${INFLUX_ORG:-fraud}
+      INFLUX_BUCKET: ${INFLUX_BUCKET:-fraud-monitoring}
+      INFLUX_TOKEN: ${INFLUX_TOKEN:?run make env}
+    ports: ["3000:3000"]
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      influxdb: {condition: service_healthy}
+    networks: [fraud-net]
+
 volumes:
   spark-events:
   mlflow-data:
+  kafka-data:
+  influxdb-data:
+  flink-checkpoints:
 
 networks:
   fraud-net:

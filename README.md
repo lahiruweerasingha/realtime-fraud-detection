@@ -46,6 +46,51 @@ baseline and the time-of-day check. Only the balance-column check moved, in
 the third decimal (0.918 vs 0.919): it trains on a joined table whose row order
 is not fixed, which changes XGBoost's row sampling.
 
+## Real-time scoring
+
+The registered champion also scores transactions as a stream: Kafka → PyFlink
+→ `scores` topic, with hourly monitoring in InfluxDB and Grafana. The stream
+replays the normal-volume test hours (with a 24-hour warm-up and a state
+snapshot for older history), and an end-to-end check compares every streamed
+result with the batch pipeline:
+
+| Check | Result |
+|---|---|
+| Messages replayed | 959,016 transactions (all types, hours 354–408) + 284,974 account-history messages + 40 malformed |
+| Transactions scored (TRANSFER and CASH_OUT, hours 378–408) | 253,490 of 253,490 expected; 0 missing, 0 unexpected, 0 duplicates |
+| Largest difference, streamed vs batch feature | 3.0e-08 |
+| Largest difference, streamed vs batch score | 0.0e+00 |
+| Alerts raised (threshold 0.9478, model v3) | 997; 205 of 386 fraud cases caught |
+| Malformed messages caught | 40 of 40, every reason matching what was injected |
+| Run time (bounded replay, parallelism 3) | 26 min for 1,243,990 valid messages, about 806 a second |
+| Verification | **passed** ([`evidence/streaming_verification.json`](evidence/streaming_verification.json)) |
+
+The largest feature difference is in `dest_prior_amount` and is float rounding
+from summing amounts in a different order; the scores themselves are
+identical. The alerts use the threshold fixed on validation scores, which
+flags 0.39% of these hours' transactions rather than the 0.5% budget it was
+set for.
+
+![Grafana monitoring dashboard](evidence/grafana_dashboard.png)
+
+The drift panel shows what hourly monitoring on this data looks like. In the
+overnight hours (03:00–08:00) only 10–28 transfers and cash-outs happen and
+almost all of them are fraud, so every score lands in the top bin of the
+validation distribution and the population stability index saturates near 8.3.
+The shift is real, but it comes from too few transactions to act on. A
+production alert on PSI would need a minimum hourly volume.
+
+How the stream guarantees the same features as training
+([ADR 5](docs/decisions/0005-streaming-features-must-equal-batch-features.md)):
+messages are keyed by destination account, so one account's transactions
+travel a single first-in first-out path (one Kafka partition, one source task,
+one network channel) and arrive in hour order. Each is scored the moment it
+arrives against the account's *earlier* hours only, with the current hour held
+aside, which is the training SQL's "strictly earlier hours" rule. A test
+checks this one-by-one path gives the same features as the Spark SQL.
+Malformed messages are validated **before** event time is assigned, so they
+can never move the watermark.
+
 ## Architecture
 
 ```mermaid
@@ -63,6 +108,13 @@ flowchart LR
     P -->|yes| R[(MLflow registry<br/>fraud-detector@champion)]
     T -.->|event logs| H[Spark history server]
     E --> EV[evidence/*.json, *.png]
+
+    R -->|model, threshold,<br/>score reference| FL
+    PR[replay producer] --> K[(Kafka<br/>transactions)]
+    K --> FL[PyFlink<br/>validate, featurise, score]
+    FL --> SC[(Kafka<br/>scores)]
+    FL -->|bad messages| DLQ[(Kafka<br/>transactions-dlq)]
+    FL -->|hourly monitoring| IN[(InfluxDB)] --> G[Grafana]
 ```
 
 | Component | Version | Role |
@@ -71,6 +123,9 @@ flowchart LR
 | XGBoost | 2.1.4 (`xgboost.spark`) | gradient-boosted trees trained across the workers |
 | MLflow | 3.17.0 | experiment tracking and model registry |
 | DuckDB | 1.5.6 | exploratory SQL in the notebook, cross-checked against Spark |
+| Apache Kafka | 3.8.0 (KRaft) | transaction, score and dead-letter topics |
+| Apache Flink | 1.20.5 (PyFlink) | stateful per-account scoring, event-time monitoring windows |
+| InfluxDB / Grafana | 2.7.12 / 12.4.3 | hourly monitoring, dashboard provisioned as code |
 | Docker Compose | — | the whole stack; nothing installed on the host |
 
 ## Quickstart
@@ -85,15 +140,29 @@ account for the dataset.
 make up         # build the image, start Spark + history server + MLflow
 make run        # validate -> features -> train -> report (about 28 minutes on a 6-core laptop with an 8.7 GB Docker VM)
 make eda        # execute notebooks/01_eda.ipynb against the data (about 1 minute)
-make test       # 42 tests in the Spark image
+make test       # 71 tests in the Spark image
 make down       # stop; MLflow runs are kept in a Docker volume
 ```
+
+Then the stream (after `make run` has registered a champion):
+
+```bash
+make stream-data    # Spark: state snapshot + replay window (about 1 minute)
+make stream-up      # stops Spark, starts Kafka, Flink, InfluxDB, Grafana
+make stream-run     # replay into Kafka, then score with Flink to the end (about 26 minutes on a laptop)
+make stream-verify  # compare every streamed feature and score with the batch pipeline
+```
+
+The first `make` creates a `.env` with random InfluxDB and Grafana secrets
+(gitignored); nothing usable is stored in the repository.
 
 | UI | URL |
 |---|---|
 | Spark master | http://localhost:8080 |
 | Spark history (DAGs and stage timings of finished jobs) | http://localhost:18080 |
 | MLflow (runs, metrics, registered model) | http://localhost:5000 |
+| Flink (job graph, checkpoints, `dead_letter_records` counter) | http://localhost:8081 |
+| Grafana (monitoring dashboard, read-only without login) | http://localhost:3000 |
 
 No dataset? This creates a small PaySim-shaped file with a planted pattern,
 enough to run the whole pipeline end to end (scores on it mean nothing):
@@ -144,11 +213,15 @@ showed how much of that comes from the simulated daily cycle (see Results).
 
 ```
 sql/features.sql            feature definitions (Spark SQL window functions)
-src/fraud/                  schema, validation, split, features, models, export, metrics
-jobs/                       spark-submit entry points: validate, features, train
+src/fraud/                  schema, validation, split, features, models, export, metrics,
+                            streaming feature state, message checks, champion loader
+jobs/                       spark-submit entry points: validate, features, train, stream state
+streaming/                  Kafka replay producer, PyFlink scoring job, end-to-end verification
+grafana/                    datasource and dashboard, provisioned as code
 notebooks/01_eda.ipynb      exploratory analysis (DuckDB SQL), executed with outputs
-tests/                      42 tests: hand-calculated metrics, feature timing, export parity
-evidence/                   measured outputs: data profile, metrics, plots, RESULTS.md
+tests/                      71 tests: hand-calculated metrics, feature timing, export parity,
+                            streaming-vs-SQL feature parity, message validation
+evidence/                   measured outputs: data profile, metrics, plots, verification, RESULTS.md
 docs/decisions/             architecture decision records
 reports/model_card.md       intended use, performance, limitations
 ```
@@ -171,14 +244,29 @@ reports/model_card.md       intended use, performance, limitations
   PaySim has no currency or review costs. With any assumed cost, "review most
   transactions" comes out optimal, so results are reported at fixed alert
   budgets instead ([details](evidence/RESULTS.md)).
+- **Streaming throughput.** The PyFlink job processes about 800 records
+  a second on this laptop: every record crosses between the JVM and a Python
+  worker twice, and each in-scope transaction is scored with its own XGBoost
+  call. That is enough for the replay, but production volumes would need
+  batched scoring or the operator in Java.
+- **Ordering is a hard requirement.** Scoring on arrival relies on one
+  account's messages staying in hour order, which holds because the producer
+  keys by account. If it did not, a record arriving after its account had moved
+  on would be counted (`late_transactions`) and not scored, and the records
+  that overtook it would already have been scored without it in their
+  history. The end-to-end verification would show that as a feature mismatch.
+- **Replaying old events through Kafka.** The replay's event timestamps are in
+  2024, older than Kafka's default 7-day retention, which deleted the input
+  as soon as it was written. The topics are created with `retention.ms=-1`.
 
 ## What I would do next
 
-1. **Real-time scoring** of the registered champion with Kafka and Flink,
-   with features computed incrementally and checked against the batch features,
-   plus Grafana monitoring of alert rate and score drift.
-2. **Delayed labels.** Track alert precision as fraud labels arrive days
-   later, as they would in production.
-3. **Run on Databricks**, swapping the local MLflow server for the managed one.
-4. **A champion/challenger comparison** in shadow mode before promoting a new
-   model version.
+1. **Delayed labels.** Track alert precision as fraud labels arrive days
+   later, as they would in production; the dashboard currently uses labels
+   at scoring time.
+2. **Run on Databricks**, swapping the local MLflow server for the managed one.
+3. **A champion/challenger comparison** in shadow mode before promoting a new
+   model version, with both models scoring the same stream.
+4. **Throughput.** Score in micro-batches (PyFlink's Arrow-based vectorised
+   functions, or the operator in Java with the booster loaded through
+   XGBoost4J) and measure the gain.
