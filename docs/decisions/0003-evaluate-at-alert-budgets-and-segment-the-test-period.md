@@ -19,7 +19,7 @@ period (steps 378–743) therefore mixes:
 | Segment | Steps | Character |
 |---|---|---|
 | normal volume | 378–408 | similar to training and validation |
-| low-volume tail | 409–743 | fraud rate several times higher; two days contain only fraud |
+| low-volume tail | 409–743 | fraud rate several times higher; the final 23 hours contain only fraud |
 
 Precision depends directly on the fraud rate, so a single test number would
 be inflated by the tail and would not describe normal operation.

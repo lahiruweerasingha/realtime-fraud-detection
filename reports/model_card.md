@@ -69,8 +69,8 @@ base rate inflates precision.
 
 1. **Time of day carries a large share of the signal, and much of it is a
    simulator artefact.** PaySim generates fraud at a steady 144–221 cases per
-   hour of the day, while legitimate volume swings from 253 to 287,916
-   transactions. Retrained without any time-of-day feature, the same model's
+   hour of the day, while the number of transfers and cash-outs per hour of
+   the day swings from 253 to 287,916. Retrained without any time-of-day feature, the same model's
    average precision drops from 0.441 to 0.166.
    Real fraud does skew towards the night, but not this strongly, so the
    headline figure overstates what these features would achieve on real data.

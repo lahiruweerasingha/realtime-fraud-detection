@@ -56,7 +56,7 @@ From `evidence/streaming_verification.json` (model v3):
 | Alerts raised (threshold 0.9478, model v3) | 997; 205 of 386 fraud cases caught |
 | Malformed messages caught | 40 of 40, every reason matching what was injected |
 | Run time (bounded replay, parallelism 3) | 26 min for 1,243,990 valid messages, about 806 a second |
-| Verification | **passed** ([`evidence/streaming_verification.json`](evidence/streaming_verification.json)) |
+| Verification | **passed** ([`evidence/streaming_verification.json`](../../evidence/streaming_verification.json)) |
 
 ## Alternative tried first
 

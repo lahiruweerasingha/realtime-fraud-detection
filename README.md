@@ -139,8 +139,8 @@ account for the dataset.
 
 make up         # build the image, start Spark + history server + MLflow
 make run        # validate -> features -> train -> report (about 28 minutes on a 6-core laptop with an 8.7 GB Docker VM)
-make eda        # execute notebooks/01_eda.ipynb against the data (about 1 minute)
-make test       # 71 tests in the Spark image
+make eda        # execute notebooks/01_eda.ipynb against the data (about 2 minutes)
+make test       # 73 tests in the Spark image
 make down       # stop; MLflow runs are kept in a Docker volume
 ```
 
@@ -149,12 +149,18 @@ Then the stream (after `make run` has registered a champion):
 ```bash
 make stream-data    # Spark: state snapshot + replay window (about 1 minute)
 make stream-up      # stops Spark, starts Kafka, Flink, InfluxDB, Grafana
-make stream-run     # replay into Kafka, then score with Flink to the end (about 26 minutes on a laptop)
+make stream-run     # empty the topics, replay into Kafka, score with Flink to the end (about 26 minutes on a laptop)
 make stream-verify  # compare every streamed feature and score with the batch pipeline
 ```
 
 The first `make` creates a `.env` with random InfluxDB and Grafana secrets
-(gitignored); nothing usable is stored in the repository.
+(gitignored); nothing usable is stored in the repository. All UIs are
+published on localhost only.
+
+On Linux, the containers write `data/` and `evidence/` as their own users
+(`spark`, uid 185, and `flink`, uid 9999). Docker Desktop on Windows and macOS
+maps this automatically. On a native Linux host, make those two folders
+writable first, for example `chmod -R a+w data evidence`.
 
 | UI | URL |
 |---|---|
@@ -164,12 +170,18 @@ The first `make` creates a `.env` with random InfluxDB and Grafana secrets
 | Flink (job graph, checkpoints, `dead_letter_records` counter) | http://localhost:8081 |
 | Grafana (monitoring dashboard, read-only without login) | http://localhost:3000 |
 
-No dataset? This creates a small PaySim-shaped file with a planted pattern,
-enough to run the whole pipeline end to end (scores on it mean nothing):
+No dataset? This creates a small PaySim-shaped file with a planted pattern
+(60,000 rows over hours 1–200), enough to run the whole pipeline end to end.
+Scores on it mean nothing:
 
 ```bash
 docker compose run --rm --no-deps runner python3 scripts/make_synthetic_data.py data/raw/synthetic.csv
 ```
+
+Before running on it, set these in `.env`: `EVIDENCE_DIR=/app/output/evidence`
+(gitignored, so the committed results are not overwritten), and
+`SCORE_FROM_STEP=175` and `SCORE_TO_STEP=200` for the stream. Then use the same
+`make` targets as above; the batch run takes about 3 minutes.
 
 ## Key design decisions
 
@@ -231,8 +243,8 @@ reports/model_card.md       intended use, performance, limitations
 - **Synthetic data.** PaySim is simulated. None of these numbers describe a real
   payment system.
 - **Time of day is partly a simulator artefact.** Fraud is generated at a
-  steady 144–221 cases for every hour of the day, while legitimate volume swings
-  from 253 to 287,916 transactions. The model uses this heavily; without it,
+  steady 144–221 cases for every hour of the day, while the number of
+  transfers and cash-outs per hour of the day swings from 253 to 287,916. The model uses this heavily; without it,
   average precision falls from 0.441 to 0.166.
 - **The test period changes character.** After hour 408 legitimate volume
   collapses while fraud continues, so test results are reported for the
@@ -240,10 +252,16 @@ reports/model_card.md       intended use, performance, limitations
 - **Account ids don't link.** Only 3 of 4,097 fraudulent-transfer destinations
   ever cash out, so mule-network features are not possible with this data.
 - **No fairness evaluation.** The data has no customer attributes.
+- **The validation hours do three jobs.** They drive XGBoost's early stopping,
+  pick the champion and set the alert threshold. That favours XGBoost slightly
+  in the model choice. The test hours are untouched by all three, so the
+  reported results are not affected.
 - **Costs are not modelled.** A cost-minimising threshold is computed, but
-  PaySim has no currency or review costs. With any assumed cost, "review most
-  transactions" comes out optimal, so results are reported at fixed alert
-  budgets instead ([details](evidence/RESULTS.md)).
+  PaySim has no currency or review costs. Because fraud amounts dwarf any
+  assumed review cost, the cost-optimal threshold flags 83% of transactions at
+  a cost of 10 per alert, 16% at 100 and still 2.4% at 1,000: 24 times the 0.1%
+  budget above. So results are reported at fixed alert budgets instead
+  ([details](evidence/RESULTS.md)).
 - **Streaming throughput.** The PyFlink job processes about 800 records
   a second on this laptop: every record crosses between the JVM and a Python
   worker twice, and each in-scope transaction is scored with its own XGBoost

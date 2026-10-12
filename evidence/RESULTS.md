@@ -107,7 +107,7 @@ XGBoost minus logistic regression, average precision: +0.330 (95% CI +0.318 to +
 
 ## Cost analysis: computed, deliberately not used
 
-`metrics.json` holds the cost-minimising alert volume for review costs of 10, 100, 1,000 per alert. With PaySim's large transaction amounts, every one of those costs makes reviewing a large share of all transactions look optimal, which no fraud team could staff. Without real review costs and capacity, the cost model would mislead, so the results above are reported at fixed alert budgets instead.
+`metrics.json` holds the cost-minimising alert volume for review costs of 10, 100, 1,000 per alert, counting each missed fraud at its amount. For the champion on the normal-volume hours, the share of transactions it would flag at each cost is 10: 83.3% (211,251 alerts), 100: 16.0% (40,528 alerts), 1,000: 2.4% (6,158 alerts). Because PaySim's fraud amounts dwarf any plausible review cost, even the highest cost tested asks for many times the review capacity of the budgets above. Without real review costs and capacity the cost model would mislead, so results are reported at fixed alert budgets instead.
 
 ## Operating point stored with the model
 
