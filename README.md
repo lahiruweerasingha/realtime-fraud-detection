@@ -140,7 +140,7 @@ account for the dataset.
 make up         # build the image, start Spark + history server + MLflow
 make run        # validate -> features -> train -> report (about 28 minutes on a 6-core laptop with an 8.7 GB Docker VM)
 make eda        # execute notebooks/01_eda.ipynb against the data (about 2 minutes)
-make test       # 73 tests in the Spark image
+make test       # 74 tests in the Spark image
 make down       # stop; MLflow runs are kept in a Docker volume
 ```
 
