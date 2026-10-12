@@ -31,7 +31,12 @@ from fraud.serving import load_champion
 BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
 STREAM_DIR = Path(os.getenv("STREAM_DIR", "/data/processed/stream"))
 FLINK_REST = os.getenv("FLINK_REST", "http://flink-jobmanager:8081")
-TOLERANCE = 1e-6
+SCORES_TOPIC = os.getenv("SCORES_TOPIC", "scores")
+DLQ_TOPIC = os.getenv("DLQ_TOPIC", "transactions-dlq")
+# Features are compared with a relative tolerance as well as an absolute one:
+# account totals reach ~1e10, where float rounding alone is ~1e-6.
+ABS_TOLERANCE = 1e-6
+REL_TOLERANCE = 1e-9
 
 
 def last_flink_run() -> dict:
@@ -89,13 +94,25 @@ def read_topic(topic: str) -> list[dict]:
     return out
 
 
+def max_abs_difference(a: pd.Series, b: pd.Series) -> float:
+    return float(np.max(np.abs(a.astype(float) - b.astype(float)))) if len(a) else 0.0
+
+
+def all_close(a: pd.Series, b: pd.Series) -> bool:
+    return bool(
+        np.isclose(a.astype(float), b.astype(float), rtol=REL_TOLERANCE, atol=ABS_TOLERANCE).all()
+    )
+
+
 def main() -> int:
     summary = json.loads((STREAM_DIR / "summary.json").read_text())
     manifest = json.loads((STREAM_DIR / "producer_manifest.json").read_text())
     lo, hi = summary["score_from_step"], summary["score_to_step"]
 
-    streamed = pd.DataFrame(read_topic("scores"))
-    dead = pd.DataFrame(read_topic("transactions-dlq"))
+    streamed = pd.DataFrame(read_topic(SCORES_TOPIC))
+    if streamed.empty:  # keep the comparison below well-defined; it then fails
+        streamed = pd.DataFrame(columns=["txn_id", *FEATURE_COLUMNS, "score", "alert"])
+    dead = pd.DataFrame(read_topic(DLQ_TOPIC))
 
     batch = pd.read_parquet(PROCESSED_DIR / "features.parquet")
     expected = batch[batch["step"].between(lo, hi) & batch["txn_type"].isin(MODEL_SCOPE_TYPES)]
@@ -115,16 +132,16 @@ def main() -> int:
     checks["unexpected_in_stream"] = int((joined["_merge"] == "right_only").sum())
 
     both = joined[joined["_merge"] == "both"]
-    feature_diffs = {
-        c: float(np.max(np.abs(both[c].astype(float) - both[f"{c}_batch"].astype(float))))
-        for c in FEATURE_COLUMNS
-    }
+    feature_diffs = {c: max_abs_difference(both[c], both[f"{c}_batch"]) for c in FEATURE_COLUMNS}
+    features_match = all(all_close(both[c], both[f"{c}_batch"]) for c in FEATURE_COLUMNS)
     checks["max_abs_feature_difference"] = feature_diffs
-    checks["max_abs_score_difference"] = float(np.max(np.abs(both["score"] - both["batch_score"])))
-    checks["alerts"] = int(both["alert"].sum())
+    checks["max_abs_score_difference"] = max_abs_difference(both["score"], both["batch_score"])
+    checks["alerts"] = int(both["alert"].astype(bool).sum())
     checks["alert_threshold"] = champion.alert_threshold
     checks["fraud_in_scored_hours"] = int(both["is_fraud_batch"].sum())
-    checks["fraud_alerted"] = int((both["alert"] & (both["is_fraud_batch"] == 1)).sum())
+    checks["fraud_alerted"] = int(
+        (both["alert"].astype(bool) & (both["is_fraud_batch"] == 1)).sum()
+    )
 
     got_reasons = dead["reason"].value_counts().to_dict() if len(dead) else {}
     checks["dead_letters"] = {
@@ -134,13 +151,15 @@ def main() -> int:
     checks["model_version"] = champion.version
 
     failures = []
+    if not len(expected):
+        failures.append(f"no in-scope transactions in hours {lo}-{hi}: nothing was checked")
     if checks["duplicate_txn_ids"]:
         failures.append("transactions scored more than once")
     if checks["missing_from_stream"] or checks["unexpected_in_stream"]:
         failures.append("streamed transactions differ from the expected set")
-    if max(feature_diffs.values(), default=0) > TOLERANCE:
+    if not features_match:
         failures.append("a streamed feature differs from the batch feature")
-    if checks["max_abs_score_difference"] > TOLERANCE:
+    if checks["max_abs_score_difference"] > ABS_TOLERANCE:
         failures.append("a streamed score differs from the batch score")
     if checks["dead_letters"]["received"] != checks["dead_letters"]["injected"]:
         failures.append("dead letters do not match what was injected")

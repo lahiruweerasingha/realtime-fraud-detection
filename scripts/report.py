@@ -9,9 +9,12 @@ README traces back to a measured value in evidence/*.json.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-EVIDENCE = Path(__file__).resolve().parents[1] / "evidence"
+# The same folder the jobs wrote to (EVIDENCE_DIR), so a side run on synthetic
+# data never overwrites the committed results.
+EVIDENCE = Path(os.getenv("EVIDENCE_DIR") or Path(__file__).resolve().parents[1] / "evidence")
 
 
 def segment_titles(m: dict) -> dict[str, str]:
@@ -121,13 +124,21 @@ def main() -> None:
             )
 
     out += ["", "## Cost analysis: computed, deliberately not used", ""]
+    seg = "test_normal_volume"
+    optimal = m["models"][m["champion"]][seg].get("cost_optimal", {})
+    rates = ", ".join(
+        f"{float(cost):,.0f}: {v['alert_rate']:.1%} ({v['alerts']:,} alerts)"
+        for cost, v in optimal.items()
+    )
     out.append(
         "`metrics.json` holds the cost-minimising alert volume for review costs of "
-        f"{', '.join(f'{c:,.0f}' for c in m['assumptions']['review_costs'])} per alert. "
-        "With PaySim's large transaction amounts, every one of those costs makes "
-        "reviewing a large share of all transactions look optimal, which no fraud team could "
-        "staff. Without real review costs and capacity, the cost model would mislead, so the "
-        "results above are reported at fixed alert budgets instead."
+        f"{', '.join(f'{c:,.0f}' for c in m['assumptions']['review_costs'])} per alert, "
+        "counting each missed fraud at its amount. For the champion on the normal-volume "
+        f"hours, the share of transactions it would flag at each cost is {rates}. "
+        "Because PaySim's fraud amounts dwarf any plausible review cost, even the highest "
+        "cost tested asks for many times the review capacity of the budgets above. "
+        "Without real review costs and capacity the cost model would mislead, so results "
+        "are reported at fixed alert budgets instead."
     )
 
     mon = m.get("monitoring")

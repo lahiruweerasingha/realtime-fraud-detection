@@ -112,6 +112,28 @@ def test_hourly_summary_by_hand():
     assert s["psi"] > 0
 
 
+def test_hourly_summary_leaves_undefined_rates_empty():
+    reference = score_reference(np.random.default_rng(0).random(1_000))
+    s = hourly_summary(np.array([0.1, 0.2]), np.array([0, 0]), 0.5, reference)
+    assert s["alerts"] == 0 and s["fraud"] == 0
+    assert s["alert_precision"] is None  # no alerts: precision undefined, not 0
+    assert s["recall"] is None  # no fraud: recall undefined, not 0
+
+
+def test_export_module_imports_without_pyspark():
+    # The Flink image unpickles LogisticScorer from fraud.export and has no Spark.
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; sys.modules['pyspark'] = None; "
+        "import fraud.export; print(fraud.export.LogisticScorer.__name__)"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "LogisticScorer"
+
+
 def test_hourly_summary_rejects_empty_window():
     with pytest.raises(ValueError):
         hourly_summary(np.array([]), np.array([]), 0.5, {"edges": [0, 1], "proportions": [1.0]})

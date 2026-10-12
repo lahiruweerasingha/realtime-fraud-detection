@@ -75,6 +75,13 @@ def main() -> int:
     out.chmod(0o777)
     print(summary)
     spark.stop()
+    if not summary["replay_rows"]:
+        print(
+            f"no transactions in hours {WARMUP_FROM_STEP}-{SCORE_TO_STEP}: set "
+            "SCORE_FROM_STEP/SCORE_TO_STEP in .env to hours the data covers",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

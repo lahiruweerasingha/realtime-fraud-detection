@@ -27,22 +27,25 @@ RUNNER := $(COMPOSE) run --rm --no-deps runner
 STREAM_TOOLS := $(STREAM) run --rm --no-deps stream-tools
 
 .PHONY: help env build up down data validate features train report run eda test lint clean \
-	stream-data stream-up stream-run stream-verify stream-down
+	stream-data stream-up stream-reset stream-run stream-verify stream-down
 
 help:
 	@echo "Batch"
 	@echo "  make up             build the image and start Spark + MLflow"
 	@echo "  make data           check the PaySim CSV is in data/raw/"
 	@echo "  make run            validate -> features -> train -> report (on the cluster)"
+	@echo "                      (or one stage: make validate | features | train | report)"
 	@echo "  make report         rebuild evidence/RESULTS.md from evidence/*.json"
 	@echo "  make eda            execute notebooks/01_eda.ipynb with real outputs"
 	@echo "Streaming (after make run)"
 	@echo "  make stream-data    Spark: state snapshot + replay window for the stream"
 	@echo "  make stream-up      stop Spark, start Kafka + Flink + InfluxDB + Grafana"
-	@echo "  make stream-run     replay into Kafka, run the Flink scoring job to the end"
+	@echo "  make stream-run     empty the topics, replay into Kafka, run Flink to the end"
+	@echo "  make stream-reset   empty the Kafka topics and the monitoring bucket"
 	@echo "  make stream-verify  check every streamed feature and score against batch"
 	@echo "  make stream-down    stop the streaming services"
 	@echo "Quality"
+	@echo "  make env            create .env with random secrets (automatic)"
 	@echo "  make test           run the test suite in the Spark image"
 	@echo "  make lint           ruff lint + format check (needs ruff installed)"
 	@echo "  make down           stop everything (volumes are kept)"
@@ -98,7 +101,22 @@ stream-up:
 	$(STREAM) run --rm kafka-init
 	@echo "Flink :8081  Grafana :3000  InfluxDB :8086  MLflow :5000"
 
-stream-run:
+# Every run starts from empty topics and an empty monitoring bucket, so a
+# second replay is never appended to the first (topics keep data forever).
+# Topic deletion is asynchronous: wait until the topics are gone before
+# kafka-init recreates them.
+stream-reset:
+	$(STREAM) exec -T kafka sh -c '\
+		T=/opt/kafka/bin/kafka-topics.sh; B="--bootstrap-server localhost:9092"; \
+		for t in transactions scores transactions-dlq; do $$T $$B --delete --if-exists --topic $$t; done; \
+		for i in $$(seq 60); do \
+			$$T $$B --list | grep -qxE "transactions|scores|transactions-dlq" || exit 0; sleep 1; \
+		done; echo "topics still being deleted" >&2; exit 1'
+	$(STREAM) run --rm kafka-init
+	$(STREAM) exec -T influxdb influx delete --org "$(INFLUX_ORG)" --bucket "$(INFLUX_BUCKET)" \
+		--start 1970-01-01T00:00:00Z --stop 2100-01-01T00:00:00Z
+
+stream-run: stream-reset
 	$(STREAM_TOOLS) python3 /app/streaming/producer.py
 	$(STREAM) exec -T -e BOUNDED=1 flink-jobmanager flink run --python /app/streaming/job.py
 
@@ -119,4 +137,4 @@ lint:
 
 clean:
 	$(STREAM) --profile tools down -v
-	rm -rf data/processed/*.parquet data/processed/stream spark-events output
+	rm -rf data/processed/*.parquet data/processed/stream output

@@ -204,7 +204,8 @@ class HourlyMonitor(ProcessAllWindowFunction):
 
             point = Point("hourly").time(start, WritePrecision.MS)
             for key, value in summary.items():
-                point = point.field(key, value)
+                if value is not None:  # undefined rates are left out, not written as 0
+                    point = point.field(key, value)
             self.writer.write(bucket=os.environ["INFLUX_BUCKET"], record=point)
         yield json.dumps(summary)
 

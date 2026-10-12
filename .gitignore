@@ -4,9 +4,7 @@
 data/*/*
 !data/*/.gitkeep
 
-# Runtime state produced by the containers
-spark-events/
-mlflow-data/
+# Results of side runs (e.g. on synthetic data) when EVIDENCE_DIR points here
 output/
 
 # Secrets

@@ -8,12 +8,17 @@ predictions in tests/test_export.py.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import mlflow.pyfunc
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from pyspark.ml import PipelineModel
+
+if TYPE_CHECKING:
+    # Type hints only. A registered LogisticScorer is unpickled in the Flink
+    # image, which has no Spark, so this module must import without PySpark.
+    from pyspark.ml import PipelineModel
 
 
 class LogisticScorer(mlflow.pyfunc.PythonModel):

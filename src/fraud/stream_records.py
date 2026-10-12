@@ -110,7 +110,7 @@ def hourly_summary(
     labels: np.ndarray,
     threshold: float,
     reference: dict,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Monitoring numbers for one event-time hour of scored transactions."""
     scores = np.asarray(scores, dtype=float)
     labels = np.asarray(labels, dtype=int)
@@ -124,8 +124,10 @@ def hourly_summary(
         "alert_rate": float(alerts.mean()),
         "fraud": int(fraud.sum()),
         "fraud_alerted": int((alerts & fraud).sum()),
-        "alert_precision": float((alerts & fraud).sum() / alerts.sum()) if alerts.any() else 0.0,
-        "recall": float((alerts & fraud).sum() / fraud.sum()) if fraud.any() else 0.0,
+        # Undefined (None, left out of the InfluxDB point) rather than 0 when an
+        # hour has no alerts or no fraud, so a quiet hour is not shown as a failure.
+        "alert_precision": float((alerts & fraud).sum() / alerts.sum()) if alerts.any() else None,
+        "recall": float((alerts & fraud).sum() / fraud.sum()) if fraud.any() else None,
         "mean_score": float(scores.mean()),
         "psi": population_stability_index(reference, scores),
     }

@@ -41,6 +41,7 @@ x-flink: &flink
     INFLUX_TOKEN: ${INFLUX_TOKEN:?run make env}
     SCORE_FROM_STEP: ${SCORE_FROM_STEP:-378}
     SCORE_TO_STEP: ${SCORE_TO_STEP:-408}
+    EVIDENCE_DIR: ${EVIDENCE_DIR:-/app/evidence}
     PYTHONPATH: /app/src
   networks: [fraud-net]
 
@@ -59,6 +60,11 @@ x-spark: &spark
     GIT_PYTHON_REFRESH: quiet       # MLflow probes for git, which the image doesn't need
     TRAIN_END_STEP: ${TRAIN_END_STEP:-}
     VALID_END_STEP: ${VALID_END_STEP:-}
+    # The stream's window is set once in .env and read by both the Spark job
+    # that exports it and the Flink job that scores it, so they always agree.
+    SCORE_FROM_STEP: ${SCORE_FROM_STEP:-378}
+    SCORE_TO_STEP: ${SCORE_TO_STEP:-408}
+    EVIDENCE_DIR: ${EVIDENCE_DIR:-/app/evidence}
   networks: [fraud-net]
 
 x-worker: &worker
@@ -78,10 +84,12 @@ services:
     command: >
       /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
       --host spark-master --port 7077 --webui-port 8080
+    # UIs are published on localhost only. The cluster RPC port (7077) is not
+    # published at all: jobs are submitted from inside this container, and
+    # Spark standalone has no authentication.
     ports:
-      - "8080:8080"   # master UI
-      - "7077:7077"   # cluster RPC
-      - "4040:4040"   # driver UI while a job runs (jobs are submitted from here)
+      - "127.0.0.1:8080:8080"   # master UI
+      - "127.0.0.1:4040:4040"   # driver UI while a job runs
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080 >/dev/null"]
       interval: 10s
@@ -91,11 +99,11 @@ services:
 
   spark-worker-1:
     <<: *worker
-    ports: ["8181:8081"]
+    ports: ["127.0.0.1:8181:8081"]
 
   spark-worker-2:
     <<: *worker
-    ports: ["8182:8081"]
+    ports: ["127.0.0.1:8182:8081"]
 
   # The live driver UI disappears when a job ends; the history server replays
   # the event logs so stage timings and DAGs stay inspectable afterwards.
@@ -105,7 +113,7 @@ services:
     environment:
       <<: *spark-env
       SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=file:/opt/spark-events
-    ports: ["18080:18080"]
+    ports: ["127.0.0.1:18080:18080"]
     depends_on:
       spark-master:
         condition: service_healthy
@@ -119,7 +127,7 @@ services:
       --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
     volumes:
       - mlflow-data:/mlflow
-    ports: ["5000:5000"]
+    ports: ["127.0.0.1:5000:5000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 10s
@@ -159,7 +167,7 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"      # topics are declared by kafka-init
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
-    ports: ["29092:29092"]
+    ports: ["127.0.0.1:29092:29092"]
     volumes: [kafka-data:/var/lib/kafka/data]
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
@@ -193,7 +201,7 @@ services:
   flink-jobmanager:
     <<: *flink
     command: jobmanager
-    ports: ["8081:8081"]
+    ports: ["127.0.0.1:8081:8081"]
     depends_on:
       kafka: {condition: service_healthy}
 
@@ -220,7 +228,7 @@ services:
       # writes older than a bucket's retention period.
       DOCKER_INFLUXDB_INIT_RETENTION: "0"
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:?run make env}
-    ports: ["8086:8086"]
+    ports: ["127.0.0.1:8086:8086"]
     volumes: [influxdb-data:/var/lib/influxdb2]
     healthcheck:
       test: ["CMD", "influx", "ping"]
@@ -240,7 +248,7 @@ services:
       INFLUX_ORG: ${INFLUX_ORG:-fraud}
       INFLUX_BUCKET: ${INFLUX_BUCKET:-fraud-monitoring}
       INFLUX_TOKEN: ${INFLUX_TOKEN:?run make env}
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro

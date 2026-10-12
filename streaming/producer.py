@@ -100,8 +100,14 @@ def main() -> int:
         )
     producer.flush()
 
+    if replay.empty:
+        raise SystemExit(
+            f"the replay is empty: no transactions in hours {summary['warmup_from_step']}-"
+            f"{summary['score_to_step']}. Check SCORE_FROM_STEP/SCORE_TO_STEP in .env against "
+            "the data, then rerun make stream-data."
+        )
     rng = random.Random(SEED)
-    inject_at = sorted(rng.sample(range(len(replay)), MALFORMED)) if MALFORMED else []
+    inject_at = sorted(rng.sample(range(len(replay)), min(MALFORMED, len(replay))))
     injected: list[str] = []
     next_bad = 0
     for i, row in enumerate(replay.itertuples(index=False)):
