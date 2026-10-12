@@ -7,7 +7,7 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to 26 in Oct 2026
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -18,7 +18,7 @@ jobs:
       - run: ruff format --check .
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to 26 in Oct 2026
     steps:
       - uses: actions/checkout@v7
       # Same Python and Java as the Spark image, so tests run on the
@@ -36,7 +36,7 @@ jobs:
       - run: pytest
 
   compose:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to 26 in Oct 2026
     steps:
       - uses: actions/checkout@v7
       - run: cp .env.example .env
