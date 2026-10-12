@@ -122,14 +122,19 @@ def test_hourly_summary_leaves_undefined_rates_empty():
 
 def test_export_module_imports_without_pyspark():
     # The Flink image unpickles LogisticScorer from fraud.export and has no Spark.
+    # A fresh interpreter, so PySpark imported by other tests can't hide the bug.
+    import os
     import subprocess
     import sys
+    from pathlib import Path
 
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([src, os.environ.get("PYTHONPATH", "")])}
     code = (
         "import sys; sys.modules['pyspark'] = None; "
         "import fraud.export; print(fraud.export.LogisticScorer.__name__)"
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "LogisticScorer"
 
