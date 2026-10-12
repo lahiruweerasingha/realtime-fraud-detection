@@ -142,3 +142,13 @@ def test_export_module_imports_without_pyspark():
 def test_hourly_summary_rejects_empty_window():
     with pytest.raises(ValueError):
         hourly_summary(np.array([]), np.array([]), 0.5, {"edges": [0, 1], "proportions": [1.0]})
+
+
+def test_shared_dir_is_writable_by_every_container_user(tmp_path):
+    import stat
+
+    from fraud.io import shared_dir
+
+    target = shared_dir(tmp_path / "output" / "evidence")
+    for folder in (target, target.parent):
+        assert stat.S_IMODE(folder.stat().st_mode) == 0o777

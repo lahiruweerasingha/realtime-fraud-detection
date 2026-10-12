@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -35,8 +36,24 @@ def sha256(path: Path, chunk: int = 1 << 20) -> str:
     return digest.hexdigest()
 
 
+def shared_dir(path: Path) -> Path:
+    """Create a folder that every container can write to, and return it.
+
+    The Spark image runs as `spark` and the Flink image as `flink`. A folder one
+    of them creates is otherwise read-only to the other, e.g. an EVIDENCE_DIR
+    made by the batch jobs and later written by the stream verification.
+    """
+    missing = [p for p in (path, *path.parents) if not p.exists()]
+    path.mkdir(parents=True, exist_ok=True)
+    for created in missing:
+        # PermissionError: created concurrently by another container's user.
+        with contextlib.suppress(PermissionError):
+            created.chmod(0o777)
+    return path
+
+
 def write_json(data: dict, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    shared_dir(path.parent)
     path.write_text(
         json.dumps(data, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8"
     )

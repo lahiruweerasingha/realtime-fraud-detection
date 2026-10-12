@@ -43,7 +43,7 @@ from sklearn.metrics import precision_recall_curve  # noqa: E402
 from fraud import evaluate as ev  # noqa: E402
 from fraud.export import booster_scores, logistic_scorer, xgboost_booster  # noqa: E402
 from fraud.features import FEATURE_COLUMNS, TIME_OF_DAY_FEATURES  # noqa: E402
-from fraud.io import EVIDENCE_DIR, PROCESSED_DIR, write_json  # noqa: E402
+from fraud.io import EVIDENCE_DIR, PROCESSED_DIR, shared_dir, write_json  # noqa: E402
 from fraud.model import (  # noqa: E402
     MODEL_SCOPE_TYPES,
     XGB_PARAMS,
@@ -320,7 +320,7 @@ def main() -> int:
         "runtime_seconds": round(time.perf_counter() - started, 1),
     }
 
-    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    shared_dir(EVIDENCE_DIR)
     write_json(metrics, EVIDENCE_DIR / "metrics.json")
     importance.to_csv(EVIDENCE_DIR / "feature_importance.csv", index=False)
     normal = "test_normal_volume"
