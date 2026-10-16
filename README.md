@@ -231,7 +231,7 @@ jobs/                       spark-submit entry points: validate, features, train
 streaming/                  Kafka replay producer, PyFlink scoring job, end-to-end verification
 grafana/                    datasource and dashboard, provisioned as code
 notebooks/01_eda.ipynb      exploratory analysis (DuckDB SQL), executed with outputs
-tests/                      71 tests: hand-calculated metrics, feature timing, export parity,
+tests/                      74 tests: hand-calculated metrics, feature timing, export parity,
                             streaming-vs-SQL feature parity, message validation
 evidence/                   measured outputs: data profile, metrics, plots, verification, RESULTS.md
 docs/decisions/             architecture decision records
