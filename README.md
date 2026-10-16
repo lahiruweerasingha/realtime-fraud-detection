@@ -5,7 +5,7 @@ leakage-free features in Spark SQL, trains logistic regression and distributed
 XGBoost, and registers the better model in MLflow, evaluated the way a fraud
 team works: by how much fraud it catches within a fixed alert budget.
 
-Originally developed as part of my MSc Data Science at Coventry University, then extended into a standalone project.
+The streaming design builds on a Kafka and Flink traffic-data pipeline I wrote for my MSc Big Data Analytics coursework at Coventry University. The fraud model, features, evaluation and real-time scoring are new work in this project.
 
 ## Results
 
